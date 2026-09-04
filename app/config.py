@@ -8,6 +8,10 @@ class StorageConfigError(RuntimeError):
     """Raised when the requested storage backend isn't configured on the server."""
 
 
+class QdrantConfigError(RuntimeError):
+    """Raised when Qdrant isn't configured on the server."""
+
+
 @dataclass(frozen=True)
 class LocalStorageSettings:
     base_dir: str
@@ -22,6 +26,27 @@ class S3StorageSettings:
     secret_key: str | None
     prefix: str
     use_ssl: bool
+
+
+@dataclass(frozen=True)
+class QdrantSettings:
+    url: str
+    api_key: str | None
+    collection: str
+
+
+def get_qdrant_settings() -> QdrantSettings:
+    url = os.environ.get("QDRANT_URL")
+    if not url:
+        raise QdrantConfigError(
+            "QDRANT_URL is not set on the server. Configure QDRANT_URL (and optionally "
+            "QDRANT_API_KEY, QDRANT_COLLECTION) as environment variables."
+        )
+    return QdrantSettings(
+        url=url,
+        api_key=os.environ.get("QDRANT_API_KEY") or None,
+        collection=os.environ.get("QDRANT_COLLECTION", "bceao_regulations"),
+    )
 
 
 def get_local_storage_settings() -> LocalStorageSettings:

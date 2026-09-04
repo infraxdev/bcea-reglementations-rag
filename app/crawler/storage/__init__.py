@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..config import get_local_storage_settings, get_s3_storage_settings
+from ...config import get_local_storage_settings, get_s3_storage_settings
 from .base import StorageBackend
 from .local import LocalStorage
 from .s3 import S3Storage

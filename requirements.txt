@@ -6,3 +6,13 @@ lxml>=5.2
 trafilatura>=1.12
 boto3>=1.34
 pydantic>=2.7
+
+# Ingestion: Parse (Docling) + Qdrant vector store
+docling>=2.0
+qdrant-client>=1.9
+
+# Not yet wired to a concrete implementation (see the NotImplementedError stubs in
+# app/ingestion/embed.py, app/ingestion/vlm_normalize.py, app/retrieval/rerank.py,
+# app/generation/llm.py) -- uncomment whichever you pick.
+# sentence-transformers>=3.0  # local dense embeddings and/or cross-encoder reranking
+# anthropic>=0.34             # generation LLM (and/or VLM normalize via image input)

@@ -1,10 +1,47 @@
-# BCEAO Regulation Scraper API
+# BCEAO Regulation RAG
 
-A FastAPI service that crawls a starting URL and downloads everything useful for
-RAG ingestion: HTML pages (raw HTML + extracted clean text), PDFs, office
-documents (doc/docx/xls/xlsx/ppt/pptx/csv/rtf/odt), and video/audio files.
+A FastAPI service implementing the full pipeline in
+`bceao_rag_pipeline_with_guarded_routing.png`: crawl BCEAO regulatory sources,
+index them into Qdrant, and answer questions over them with guarded routing
+(out-of-scope questions are refused before any LLM call).
 
-## How it works
+## Project structure
+
+Each package below is one swimlane of the diagram.
+
+```
+app/
+  api/         # FastAPI routers: /crawl+/jobs, /ingest/{job_id}, /query
+  crawler/     # Indexing offline · Sources — crawl + download (fully working)
+  ingestion/   # Indexing offline · Parse -> VLM normalize -> Chunk -> Embed -> Qdrant
+  retrieval/   # Retrieval online · router -> rewrite -> hybrid search -> rerank -> prompt
+  generation/  # Generation · LLM -> policy gate -> response
+```
+
+Every stage is a small interface (an `ABC` in each package's `interfaces.py`) with
+a default implementation:
+
+| Stage | Default | Status |
+|---|---|---|
+| Sources (crawl) | `crawler.engine.run_crawl` | working |
+| Parse | `ingestion.parse.DoclingParser` | working (Docling) |
+| VLM normalize | `ingestion.vlm_normalize.NotConfiguredNormalizer` | **TODO** — pick a vision-capable model |
+| Chunk | `ingestion.chunk.SimpleChunker` | working (paragraph-aware + overlap) |
+| Embed | `ingestion.embed.NotConfiguredEmbedder` | **TODO** — pick a dense/sparse embedding model |
+| Qdrant | `ingestion.vector_store.QdrantVectorStore` | working |
+| Query router | `retrieval.router.KeywordScopeRouter` | working (keyword heuristic; swap for an LLM classifier later) |
+| Rewrite query | `retrieval.rewrite.PassthroughRewriter` | working no-op — **TODO** for real metadata extraction |
+| Hybrid search | `retrieval.hybrid_search.HybridSearcher` | working once Embed is configured |
+| Rerank | `retrieval.rerank.NotConfiguredReranker` | **TODO** — pick a cross-encoder/rerank API |
+| Prompt assembly | `retrieval.prompt_assembly.assemble_prompt` | working |
+| LLM | `generation.llm.NotConfiguredGenerator` | **TODO** — pick a generation provider |
+| Policy gate | `generation.policy_gate.BasicPolicyGate` | working (basic checks; extend for real redaction) |
+
+`POST /ingest/{job_id}` and `POST /query` are wired end-to-end and run until they
+hit the first unconfigured stage, where they return `501` with a message
+pointing at the file to implement.
+
+## Crawler: how it works
 
 - Given a `start_url`, it does a breadth-first crawl restricted to that URL's
   domain (plus any `extra_allowed_domains` you list) **and, by default, to
@@ -46,6 +83,9 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
+
+`docling` (the default Parse implementation) pulls in a fair amount of ML tooling, so
+this install is noticeably heavier/slower than the crawler-only version was.
 
 ### Configure storage (environment variables)
 
@@ -203,6 +243,10 @@ Retrieve a past job's manifest: `GET /jobs/{job_id}`. List known job ids: `GET /
 
 - Image and archive links are typed correctly but not auto-followed from page
   links by default (avoids hoovering up every icon/logo) — see
-  `AUTO_FOLLOW_TYPES` in `app/utils.py` if you need to change that.
-- This service only downloads and lightly extracts text; chunking, embedding,
-  and indexing into your vector store are separate downstream steps.
+  `AUTO_FOLLOW_TYPES` in `app/crawler/utils.py` if you need to change that.
+- Chunking, embedding, and indexing into Qdrant now live in `app/ingestion/` —
+  see the "Project structure" table above for what's implemented vs. a TODO.
+- `POST /ingest/{job_id}` currently only indexes resources whose
+  `storage_location` is a local path (i.e. crawls run with
+  `storage_backend: "local"`) — indexing an S3-backed job would need adding a
+  download-to-tempfile step in `app/ingestion/pipeline.py` first.

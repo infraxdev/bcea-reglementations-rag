@@ -6,7 +6,7 @@ from pathlib import Path
 import boto3
 from botocore.client import Config
 
-from ..config import S3StorageSettings
+from ...config import S3StorageSettings
 from .base import StorageBackend
 
 
