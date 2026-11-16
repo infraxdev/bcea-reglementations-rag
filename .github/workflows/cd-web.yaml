@@ -1,0 +1,74 @@
+name: CD web (build + deploy to dev)
+
+# Builds the frontend image (web/Dockerfile: static Next.js export + nginx), pushes it to
+# the bceao-rag-web ECR repo tagged by git SHA, then updates the web dev overlay and pushes
+# that change back to main. Argo CD's `web` Application auto-syncs from there. Separate
+# from cd.yaml so a frontend-only change doesn't rebuild the multi-GB Python image, and
+# vice versa. staging/prod are promoted explicitly via promote.yaml.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "!web/**/*.md"
+
+permissions:
+  id-token: write # for OIDC federation to AWS: no static AWS keys in CI
+  contents: write # to commit the updated image tag back to main
+
+concurrency:
+  group: cd-web-dev
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: REPLACE_WITH_GITHUB_ACTIONS_OIDC_ROLE_ARN
+          aws-region: eu-west-3
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build + push
+        id: image
+        env:
+          REPO: ${{ steps.ecr.outputs.registry }}/bceao-rag-web
+          TAG: ${{ github.sha }}
+        run: |
+          docker buildx build --push -t "$REPO:$TAG" web
+          echo "image=$REPO:$TAG" >> "$GITHUB_OUTPUT"
+
+  deploy-dev:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: ./.github/actions/set-image
+        with:
+          image: ${{ needs.build-and-push.outputs.image }}
+          placeholder: REPLACE_WITH_WEB_ECR_IMAGE_URI
+          overlay-paths: |
+            infra/kubernetes/apps/web/overlays/dev
+
+      - name: Commit + push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add infra/kubernetes/apps/web/overlays/dev
+          git diff --cached --quiet || git commit -m "deploy(dev): ${{ needs.build-and-push.outputs.image }}"
+          git pull --rebase
+          git push

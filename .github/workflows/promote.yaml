@@ -1,0 +1,85 @@
+name: Promote
+
+# Manual promotion to staging or prod — never automatic from a push, unlike dev
+# (cd.yaml). The `prod` GitHub Environment should have a required-reviewers protection
+# rule configured in repo settings so this becomes the manual approval gate
+# docs/aws-architecture.md §10 calls for.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options: [staging, prod]
+      image_tag:
+        description: Git SHA tag of bceao-rag (api + worker) to promote, as pushed by cd.yaml. Leave empty to skip.
+        required: false
+        type: string
+      web_image_tag:
+        description: Git SHA tag of bceao-rag-web to promote, as pushed by cd-web.yaml. Leave empty to skip.
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      ENV_NAME: ${{ inputs.environment }}
+      API_TAG: ${{ inputs.image_tag }}
+      WEB_TAG: ${{ inputs.web_image_tag }}
+    steps:
+      - name: Require at least one tag
+        if: inputs.image_tag == '' && inputs.web_image_tag == ''
+        run: |
+          echo "::error::Set image_tag, web_image_tag, or both."
+          exit 1
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: REPLACE_WITH_GITHUB_ACTIONS_OIDC_ROLE_ARN
+          aws-region: eu-west-3
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - name: Promote api + worker
+        if: inputs.image_tag != ''
+        uses: ./.github/actions/set-image
+        with:
+          image: ${{ steps.ecr.outputs.registry }}/bceao-rag:${{ inputs.image_tag }}
+          overlay-paths: |
+            infra/kubernetes/apps/api/overlays/${{ inputs.environment }}
+            infra/kubernetes/apps/worker/overlays/${{ inputs.environment }}
+
+      - name: Promote web
+        if: inputs.web_image_tag != ''
+        uses: ./.github/actions/set-image
+        with:
+          image: ${{ steps.ecr.outputs.registry }}/bceao-rag-web:${{ inputs.web_image_tag }}
+          placeholder: REPLACE_WITH_WEB_ECR_IMAGE_URI
+          overlay-paths: |
+            infra/kubernetes/apps/web/overlays/${{ inputs.environment }}
+
+      - name: Commit + push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "infra/kubernetes/apps/api/overlays/$ENV_NAME" \
+                  "infra/kubernetes/apps/worker/overlays/$ENV_NAME" \
+                  "infra/kubernetes/apps/web/overlays/$ENV_NAME"
+          msg="deploy($ENV_NAME):"
+          [ -n "$API_TAG" ] && msg="$msg bceao-rag:$API_TAG"
+          [ -n "$WEB_TAG" ] && msg="$msg bceao-rag-web:$WEB_TAG"
+          git diff --cached --quiet || git commit -m "$msg"
+          git push

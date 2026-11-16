@@ -1,0 +1,60 @@
+name: Terraform
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ["infra/terraform/**"]
+  push:
+    branches: [main]
+    paths: ["infra/terraform/**"]
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  plan:
+    if: github.event_name == 'pull_request'
+    strategy:
+      matrix:
+        environment: [dev, staging, prod]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform/environments/${{ matrix.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: REPLACE_WITH_GITHUB_ACTIONS_OIDC_ROLE_ARN
+          aws-region: eu-west-3
+      - run: terraform init
+      - run: terraform fmt -check -recursive ../../
+      - run: terraform validate
+      - run: terraform plan -no-color
+        # Posting the plan output to the PR is left as a follow-up (e.g.
+        # hashicorp/setup-terraform's own PR-comment recipe) — kept out of this
+        # scaffold to avoid baking in a specific comment-formatting action choice.
+
+  apply:
+    if: github.event_name == 'push'
+    strategy:
+      matrix:
+        environment: [dev, staging, prod]
+      max-parallel: 1 # apply dev -> staging -> prod in order, never in parallel
+    runs-on: ubuntu-latest
+    environment: ${{ matrix.environment }} # prod's GitHub Environment protection rule is the approval gate
+    defaults:
+      run:
+        working-directory: infra/terraform/environments/${{ matrix.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: REPLACE_WITH_GITHUB_ACTIONS_OIDC_ROLE_ARN
+          aws-region: eu-west-3
+      - run: terraform init
+      - run: terraform apply -auto-approve

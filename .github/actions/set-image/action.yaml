@@ -1,0 +1,35 @@
+name: Set Kustomize image
+description: >
+  Runs `kustomize edit set image` against one or more overlay directories, pointing an
+  image placeholder (REPLACE_WITH_ECR_IMAGE_URI in infra/kubernetes/apps/{api,worker}/base/
+  deployment.yaml, REPLACE_WITH_WEB_ECR_IMAGE_URI in apps/web) at the just-built image. Shared by cd.yaml (dev) and promote.yaml
+  (staging/prod) so both paths stay in sync.
+
+inputs:
+  image:
+    required: true
+    description: Full image ref, e.g. 123456789012.dkr.ecr.eu-west-3.amazonaws.com/bceao-rag:abc123
+  overlay-paths:
+    required: true
+    description: Newline-separated list of overlay directories to update
+  placeholder:
+    required: false
+    default: REPLACE_WITH_ECR_IMAGE_URI
+    description: Image name in the base manifests to replace
+
+runs:
+  using: composite
+  steps:
+    - name: Install kustomize
+      shell: bash
+      run: |
+        curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+        sudo mv kustomize /usr/local/bin/
+
+    - name: Set image on each overlay
+      shell: bash
+      run: |
+        while IFS= read -r dir; do
+          [ -z "$dir" ] && continue
+          (cd "$dir" && kustomize edit set image "${{ inputs.placeholder }}=${{ inputs.image }}")
+        done <<< "${{ inputs.overlay-paths }}"
