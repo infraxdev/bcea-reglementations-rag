@@ -3,7 +3,7 @@
 A FastAPI service implementing the full pipeline in
 `bceao_rag_pipeline_with_guarded_routing.png`: crawl BCEAO regulatory sources,
 index them into Qdrant, and answer questions over them with guarded routing
-(out-of-scope questions are refused before any LLM call).
+(out-of-scope questions are turned away before any retrieval or answer generation).
 
 ## Project structure
 
@@ -16,7 +16,15 @@ app/
   ingestion/   # Indexing offline · Parse -> VLM normalize -> Chunk -> Embed -> Qdrant
   retrieval/   # Retrieval online · router -> rewrite -> hybrid search -> rerank -> prompt
   generation/  # Generation · LLM -> policy gate -> response
+web/           # Next.js tester UI for POST /query (see web/README.md)
+docs/          # Architecture decisions — start with docs/aws-architecture.md
+infra/         # AWS infrastructure (Terraform + Kubernetes/Argo CD) — see infra/README.md
 ```
+
+## Deploying to AWS
+
+See [`docs/aws-architecture.md`](docs/aws-architecture.md) for the design and
+[`infra/README.md`](infra/README.md) for the bootstrap steps.
 
 Every stage is a small interface (an `ABC` in each package's `interfaces.py`) with
 a default implementation:
@@ -29,7 +37,7 @@ a default implementation:
 | Chunk | `ingestion.chunk.SimpleChunker` | working (paragraph-aware + overlap) |
 | Embed | `ingestion.embed.NotConfiguredEmbedder` | **TODO** — pick a dense/sparse embedding model |
 | Qdrant | `ingestion.vector_store.QdrantVectorStore` | working |
-| Query router | `retrieval.router.KeywordScopeRouter` | working (keyword heuristic; swap for an LLM classifier later) |
+| Query router | `retrieval.router.LLMScopeRouter` | working (one LLM call: scope decision + rewritten query, or the reply for small talk / out-of-scope; general finance questions are flagged and answered by the generation LLM with the history, without retrieval) |
 | Rewrite query | `retrieval.rewrite.PassthroughRewriter` | working no-op — **TODO** for real metadata extraction |
 | Hybrid search | `retrieval.hybrid_search.HybridSearcher` | working once Embed is configured |
 | Rerank | `retrieval.rerank.NotConfiguredReranker` | **TODO** — pick a cross-encoder/rerank API |
@@ -69,12 +77,12 @@ pointing at the file to implement.
   but *where* it points to (local base dir, or bucket/credentials/endpoint) is
   fixed server-side via environment variables — never accepted in the request
   body, so callers can't point the API at an arbitrary bucket or path.
-- Crawls run **synchronously** — the request blocks until the crawl finishes
-  and returns the full manifest. Use `max_pages`, `max_depth`, and
-  `timeout_seconds` to keep requests bounded on large sites.
-- Every job's manifest is also saved locally to `job_metadata/<job_id>.json`
-  (independent of where the actual files were stored) so you can look it up
-  again via `GET /jobs/{job_id}`.
+- Crawls and ingests run **in the background**: `POST /crawl` and
+  `POST /ingest/{job_id}` return `202` with a `job_id` right away (see
+  [Jobs: crawl and ingest](#jobs-crawl-and-ingest)).
+- Every finished crawl's manifest is saved to `job_metadata/<job_id>.json`
+  (or to S3 with `JOB_MANIFEST_BACKEND=s3`), independent of where the files
+  themselves went, so you can look it up again via `GET /jobs/{job_id}`.
 
 ## Setup
 
@@ -126,6 +134,57 @@ If a crawl requests `storage_backend: "s3"` and `S3_BUCKET` isn't set, the API
 returns `400` rather than falling back to local disk.
 
 API docs: http://127.0.0.1:8000/docs
+
+## Jobs: crawl and ingest
+
+Both are asynchronous. Submit, then poll:
+
+```bash
+curl -X POST http://127.0.0.1:8000/crawl -H 'Content-Type: application/json' \
+  -d '{"start_url": "https://www.bceao.int/fr/reglementations", "max_depth": 1}'
+# -> 202 {"job_id": "3f2a...", "status": "queued", "status_url": "/crawl/3f2a.../status"}
+
+curl http://127.0.0.1:8000/crawl/3f2a.../status     # queued -> running -> completed | failed
+curl http://127.0.0.1:8000/jobs/3f2a...             # full manifest, once completed
+
+curl -X POST http://127.0.0.1:8000/ingest/3f2a...   # -> 202, status_url /ingest/3f2a.../progress
+curl http://127.0.0.1:8000/ingest/3f2a.../progress  # docs done, rate, ETA, errors
+```
+
+Submitting a job id that's still queued or running returns `409`.
+
+Who runs the jobs depends on `JOB_QUEUE_BACKEND`:
+
+| Mode | Set up | Jobs run in | Use for |
+|---|---|---|---|
+| `inprocess` (default) | `uvicorn` only | the API process | quick local development |
+| `sqs` | `docker compose up --build` | separate `worker` containers (`python -m app.worker`) | the local full stack, and EKS |
+
+With `sqs`, failed jobs are retried (3 attempts, then the SQS dead-letter queue), a
+worker that stops mid-job hands the job back so another resumes it, and job state is
+shared through DynamoDB so any API replica can answer status polls. The settings are
+listed in `.env.example` (`JOB_*`), and `docs/aws-architecture.md` §6 describes the
+design.
+
+### Full local stack (Docker Compose)
+
+```bash
+cp .env.example .env    # then set your provider keys
+docker compose up --build
+```
+
+| Service | URL | What |
+|---|---|---|
+| web | http://localhost:8080 | UI (nginx; proxies `/api` to the api) |
+| api | http://localhost:8000/docs | FastAPI |
+| worker | — | runs crawl/ingest jobs; scale with `docker compose up --scale worker=3` |
+| qdrant | http://localhost:6333/dashboard | vector store |
+| elasticmq | http://localhost:9325 | local SQS (queues + dead-letter queues) |
+| dynamodb | — | local DynamoDB (job status and progress) |
+
+Crawled files and manifests live in the `crawl_data` and `job_metadata` volumes, shared
+by the api and worker containers. Ollama is reached on the host at
+`host.docker.internal:11434`.
 
 ## Example: crawl to local disk
 
@@ -210,7 +269,7 @@ curl -X POST http://127.0.0.1:8000/crawl \
 - Leave `resource_types` at its default (or add `"html"`) if you also want
   the detail pages' text saved, not just the PDFs.
 
-## Response shape
+## Manifest shape (`GET /jobs/{job_id}`)
 
 ```json
 {
@@ -246,7 +305,7 @@ Retrieve a past job's manifest: `GET /jobs/{job_id}`. List known job ids: `GET /
   `AUTO_FOLLOW_TYPES` in `app/crawler/utils.py` if you need to change that.
 - Chunking, embedding, and indexing into Qdrant now live in `app/ingestion/` —
   see the "Project structure" table above for what's implemented vs. a TODO.
-- `POST /ingest/{job_id}` currently only indexes resources whose
-  `storage_location` is a local path (i.e. crawls run with
-  `storage_backend: "local"`) — indexing an S3-backed job would need adding a
-  download-to-tempfile step in `app/ingestion/pipeline.py` first.
+- `POST /ingest/{job_id}` indexes both local and S3-backed crawls. For S3 it
+  downloads each file to a temp dir to parse it, then moves it to `processed/` in
+  the bucket.
+# bcea-reglementations-rag
