@@ -1,0 +1,20 @@
+# helm repo add jetstack https://charts.jetstack.io
+# helm install cert-manager jetstack/cert-manager \
+#   -n cert-manager --create-namespace -f values.yaml
+#
+# Public TLS on the ALB comes from ACM (Terraform-managed), not cert-manager. This
+# installation exists only to issue the internal/webhook certs that the Prometheus
+# Operator, External Secrets, and KEDA admission webhooks want — each chart's own
+# `webhook.certManager.enabled: true` picks it up automatically.
+
+installCRDs: true
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
+
+nodeSelector:
+  bceao.io/pool: system

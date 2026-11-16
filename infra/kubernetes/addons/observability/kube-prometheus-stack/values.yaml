@@ -1,0 +1,92 @@
+# helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+# helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+#   -n observability --create-namespace \
+#   -f values.yaml [-f values-prod.yaml for prod]
+#
+# docs/aws-architecture.md §7 — self-hosted instead of AMP/AMG. Grafana is the single
+# pane of glass: this chart's sidecar auto-discovers the Loki/Tempo datasources defined
+# below plus any dashboard ConfigMaps labeled grafana_dashboard=1.
+
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    resources:
+      requests: { cpu: 250m, memory: 512Mi }
+      limits: { memory: 2Gi }
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 50Gi
+    # Scrapes every ServiceMonitor/PodMonitor across namespaces — the api/worker
+    # Deployments each expose a /metrics endpoint their own ServiceMonitor targets
+    # (infra/kubernetes/apps/api/base/, apps/worker/base/).
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    nodeSelector:
+      bceao.io/pool: system
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { memory: 128Mi }
+    nodeSelector:
+      bceao.io/pool: system
+  config:
+    route:
+      receiver: slack
+      group_by: ["alertname", "severity"]
+    receivers:
+      - name: slack
+        slack_configs:
+          - api_url: REPLACE_WITH_SLACK_WEBHOOK_SECRET # move to a k8s Secret via ExternalSecret before prod use
+            channel: "#bceao-rag-alerts"
+            send_resolved: true
+
+grafana:
+  adminPassword: REPLACE_ME # move to a k8s Secret via ExternalSecret before prod use
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 256Mi }
+  persistence:
+    enabled: true
+    storageClassName: gp3
+    size: 5Gi
+  nodeSelector:
+    bceao.io/pool: system
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+    datasources:
+      enabled: true
+      label: grafana_datasource
+
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      url: http://loki-gateway.observability.svc.cluster.local
+      access: proxy
+      jsonData:
+        derivedFields:
+          - datasourceUid: tempo
+            matcherRegex: 'trace_id=(\w+)'
+            name: TraceID
+            url: "${__value.raw}"
+    - name: Tempo
+      type: tempo
+      uid: tempo
+      url: http://tempo.observability.svc.cluster.local:3200
+      access: proxy
+
+  ingress:
+    enabled: false # internal-only; reach Grafana via `kubectl port-forward` or an internal ALB — never expose it publicly without SSO in front of it
+
+# AWS-side metrics (ALB, NAT, EBS, SQS) Prometheus can't scrape directly — run as a
+# separate Deployment rather than a kube-prometheus-stack subchart, see
+# https://github.com/nerdswords/yet-another-cloudwatch-exporter. Wire its ServiceMonitor
+# in once deployed; omitted here to keep this chart's values focused.

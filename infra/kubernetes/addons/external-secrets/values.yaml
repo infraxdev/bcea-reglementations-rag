@@ -1,0 +1,24 @@
+# helm repo add external-secrets https://charts.external-secrets.io
+# helm install external-secrets external-secrets/external-secrets \
+#   -n external-secrets --create-namespace -f values.yaml
+#
+# Syncs AWS Secrets Manager entries (infra/terraform/modules/secrets) into native k8s
+# Secrets the api/worker Deployments mount as plain env vars — app/config.py already
+# reads OPENAI_API_KEY/ANTHROPIC_API_KEY/QDRANT_API_KEY from os.environ, so this is a
+# zero-app-change way to keep those out of ConfigMaps/Git (docs/aws-architecture.md §4).
+
+serviceAccount:
+  create: true
+  name: external-secrets
+  annotations:
+    eks.amazonaws.com/role-arn: REPLACE_WITH_TERRAFORM_OUTPUT_irsa_role_arns.external_secrets
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
+
+nodeSelector:
+  bceao.io/pool: system

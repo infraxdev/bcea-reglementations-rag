@@ -1,0 +1,65 @@
+# Single replica for MVP (Phase 0) — docs/aws-architecture.md §2/§12 notes 3-node
+# Qdrant cluster mode as the HA upgrade path once budget/uptime requirements justify
+# it; until then, nightly S3 snapshots (backup-cronjob.yaml) are the recovery story.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: qdrant
+  namespace: bceao-rag
+spec:
+  serviceName: qdrant
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qdrant
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: qdrant
+    spec:
+      serviceAccountName: qdrant
+      nodeSelector:
+        bceao.io/pool: qdrant
+      tolerations:
+        - key: bceao.io/pool
+          operator: Equal
+          value: qdrant
+          effect: NoSchedule
+      containers:
+        - name: qdrant
+          # Keep in step with compose.yml and qdrant-client in requirements.txt. Qdrant storage
+          # only upgrades forward: data written by a newer version can't be read by an older one.
+          image: qdrant/qdrant:v1.19.1
+          ports:
+            - name: http
+              containerPort: 6333
+            - name: grpc
+              containerPort: 6334
+          volumeMounts:
+            - name: storage
+              mountPath: /qdrant/storage
+          resources:
+            requests:
+              cpu: "1"
+              memory: 4Gi
+            limits:
+              memory: 8Gi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: gp3
+        resources:
+          requests:
+            storage: 100Gi

@@ -1,0 +1,23 @@
+# CPU-based to start — needs only metrics-server (already in the add-on list). Scaling
+# on p95 request latency instead (docs/aws-architecture.md §2) needs a Prometheus
+# Adapter exposing a custom metric to the HPA; revisit once the observability stack
+# (§7) has enough query volume to tune thresholds against.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api
+  namespace: bceao-rag
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

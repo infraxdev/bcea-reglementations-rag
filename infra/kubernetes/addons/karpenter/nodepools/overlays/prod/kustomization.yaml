@@ -1,0 +1,43 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+
+# EC2NodeClass.spec.role must be the Karpenter node IAM role Terraform created —
+# `terraform output -raw karpenter_node_iam_role_name` in
+# infra/terraform/environments/prod — paste it in place of the placeholder below before
+# applying. The discovery tag is fixed by infra/terraform/modules/vpc/main.tf and is
+# safe to leave as-is.
+patches:
+  - target:
+      kind: EC2NodeClass
+    patch: |-
+      - op: replace
+        path: /spec/role
+        value: REPLACE_WITH_TERRAFORM_OUTPUT_karpenter_node_iam_role_name
+      - op: replace
+        path: /spec/subnetSelectorTerms/0/tags/karpenter.sh~1discovery
+        value: bceao-rag-prod
+      - op: replace
+        path: /spec/securityGroupSelectorTerms/0/tags/karpenter.sh~1discovery
+        value: bceao-rag-prod
+  - target:
+      kind: NodePool
+      name: ingest-worker
+    patch: |-
+      - op: replace
+        path: /spec/limits/cpu
+        value: "128"
+      - op: replace
+        path: /spec/limits/memory
+        value: 512Gi
+  - target:
+      kind: NodePool
+      name: qdrant
+    patch: |-
+      - op: replace
+        path: /spec/limits/cpu
+        value: "32"
+      - op: replace
+        path: /spec/limits/memory
+        value: 256Gi

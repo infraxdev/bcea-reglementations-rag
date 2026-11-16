@@ -1,0 +1,11 @@
+# Keeps one web pod serving during node drains (Karpenter consolidation, upgrades).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web
+  namespace: bceao-rag
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web

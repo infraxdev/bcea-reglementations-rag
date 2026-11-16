@@ -1,0 +1,47 @@
+# Provisions the public ALB via the AWS Load Balancer Controller (docs/aws-architecture.md
+# §2). WAF association happens automatically from the wafv2-acl-arn annotation — see
+# infra/terraform/modules/waf's comment on why there's no separate association resource.
+#
+# certificate-arn: ACM certificate — request/validate it for the real domain outside
+# this repo (`aws acm request-certificate` + DNS validation, or via Route 53 if the zone
+# lives there) since the domain itself isn't decided yet; paste the resulting ARN below.
+# The certificate must cover both hosts below (api + web), e.g. a SAN cert or a wildcard.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api
+  namespace: bceao-rag
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}, {"HTTP":80}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: REPLACE_WITH_ACM_CERTIFICATE_ARN
+    alb.ingress.kubernetes.io/wafv2-acl-arn: REPLACE_WITH_TERRAFORM_OUTPUT_waf_web_acl_arn
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/group.name: bceao-rag
+spec:
+  rules:
+    - host: REPLACE_WITH_API_DOMAIN # e.g. api.rag.bceao.int
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 80
+    # Web UI (infra/kubernetes/apps/web). Its nginx proxies /api/* to the api Service, so
+    # browsers stay on this one origin. The api host above remains for direct API clients.
+    - host: REPLACE_WITH_WEB_DOMAIN # e.g. rag.bceao.int
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80

@@ -1,0 +1,16 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.git/
+.github/
+data/
+job_metadata/
+.cache/
+.env
+.env.example
+*.md
+web/
+infra/
+docker/.dockerignore
+.DS_Store

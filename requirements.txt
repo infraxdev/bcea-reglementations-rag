@@ -1,5 +1,6 @@
 fastapi>=0.115
 uvicorn[standard]>=0.30
+python-dotenv>=1.0
 httpx>=0.27
 beautifulsoup4>=4.12
 lxml>=5.2
@@ -7,12 +8,23 @@ trafilatura>=1.12
 boto3>=1.34
 pydantic>=2.7
 
-# Ingestion: Parse (Docling) + Qdrant vector store
-docling>=2.0
+# Ingestion: Parse (Docling) + Chunk (SemanticChunker) + Embed (fastembed: e5-large dense +
+# BM25 sparse) + Qdrant vector store. fastembed also provides Retrieval's Rerank stage
+# (TextCrossEncoder, app/retrieval/rerank.py) -- one local ONNX runtime for all three.
+docling[rapidocr]>=2.126,<3
+pysbd>=0.3
+langdetect>=1.0.9
+fastembed>=0.4
 qdrant-client>=1.9
 
-# Not yet wired to a concrete implementation (see the NotImplementedError stubs in
-# app/ingestion/embed.py, app/ingestion/vlm_normalize.py, app/retrieval/rerank.py,
-# app/generation/llm.py) -- uncomment whichever you pick.
-# sentence-transformers>=3.0  # local dense embeddings and/or cross-encoder reranking
-# anthropic>=0.34             # generation LLM (and/or VLM normalize via image input)
+# Generation LLM (app/generation/llm.py) -- switch providers via GENERATION_PROVIDER
+# in .env; only the selected provider's package needs to actually be installed at
+# runtime (each is lazily imported), but all three are listed so `pip install -r
+# requirements.txt` covers whichever one you pick.
+openai>=1.0      # GENERATION_PROVIDER=openai (ChatGPT)
+anthropic>=0.34  # GENERATION_PROVIDER=anthropic (Claude) -- also usable for VLM normalize via image input
+# GENERATION_PROVIDER=ollama (Qwen 2.5:7b, or any local/self-hosted Ollama model) needs
+# no extra package -- it talks to Ollama's HTTP API via the httpx dependency above.
+
+# Not yet wired to a concrete implementation (see the NotImplementedError stub in
+# app/ingestion/vlm_normalize.py)

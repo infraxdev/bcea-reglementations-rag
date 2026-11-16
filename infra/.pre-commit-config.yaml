@@ -1,0 +1,21 @@
+# pip install pre-commit && pre-commit install -c infra/.pre-commit-config.yaml
+repos:
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.96.1
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate
+      - id: terraform_tflint
+      - id: terraform_checkov
+        args:
+          - --args=--quiet
+          - --args=--compact
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        exclude: ^kubernetes/addons/karpenter/nodepools/ # JSON6902 patches aren't plain YAML docs this hook parses cleanly
+      - id: end-of-file-fixer
+      - id: trailing-whitespace

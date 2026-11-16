@@ -1,0 +1,27 @@
+# Separate EC2NodeClass for the optional llm-gpu pool (Phase 3, docs/aws-architecture.md
+# §12) — needs the EKS-accelerated AMI (NVIDIA drivers preinstalled), not the default
+# AL2023 AMI the CPU pools use.
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: gpu-accelerated
+spec:
+  amiFamily: AL2023
+  amiSelectorTerms:
+    - alias: al2023@latest # TODO: pin to a specific accelerated AMI alias before prod use
+  role: KARPENTER_NODE_IAM_ROLE_NAME
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: ENVIRONMENT_DISCOVERY_TAG
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: ENVIRONMENT_DISCOVERY_TAG
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 100Gi
+        volumeType: gp3
+        encrypted: true
+        deleteOnTermination: true
+  tags:
+    bceao.io/managed-by: karpenter

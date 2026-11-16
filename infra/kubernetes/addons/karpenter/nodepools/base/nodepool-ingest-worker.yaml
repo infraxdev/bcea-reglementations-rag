@@ -1,0 +1,43 @@
+# Crawl + ingest jobs (Docling parse / RapidOCR / fastembed). CPU+memory heavy, bursty,
+# and safely interruptible — ingestion already skips files already moved to processed/
+# (app/api/ingest.py), so Spot is the right default (docs/aws-architecture.md §2/§6).
+# KEDA (infra/kubernetes/apps/worker/base/scaledobject.yaml) scales the worker
+# Deployment on SQS queue depth, including to zero — Karpenter then has nothing to run
+# and removes these nodes too.
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: ingest-worker
+spec:
+  template:
+    metadata:
+      labels:
+        bceao.io/pool: ingest-worker
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      requirements:
+        - key: karpenter.k8s.aws/instance-category
+          operator: In
+          values: ["c", "r"]
+        - key: karpenter.k8s.aws/instance-generation
+          operator: Gt
+          values: ["6"]
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["spot", "on-demand"] # spot preferred; Karpenter falls back to on-demand if spot is unavailable
+      taints:
+        - key: bceao.io/pool
+          value: ingest-worker
+          effect: NoSchedule
+  limits:
+    cpu: "64"
+    memory: 256Gi
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 1m # scale to zero quickly between crawl/ingest runs

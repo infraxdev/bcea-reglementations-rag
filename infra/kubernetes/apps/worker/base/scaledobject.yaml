@@ -1,0 +1,27 @@
+# Scales the worker Deployment on combined crawl+ingest queue depth, including to zero
+# between runs — Karpenter's ingest-worker NodePool then has nothing to schedule and
+# removes its nodes too (docs/aws-architecture.md §2/§6).
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: worker
+  namespace: bceao-rag
+spec:
+  scaleTargetRef:
+    name: worker
+  minReplicaCount: 0
+  maxReplicaCount: 20
+  cooldownPeriod: 120
+  triggers:
+    - type: aws-sqs-queue
+      metadata:
+        queueURL: REPLACE_WITH_TERRAFORM_OUTPUT_queue_urls.crawl
+        queueLength: "1"
+        awsRegion: eu-west-3
+        identityOwner: operator # uses the keda-operator ServiceAccount's own IRSA role, not per-trigger credentials
+    - type: aws-sqs-queue
+      metadata:
+        queueURL: REPLACE_WITH_TERRAFORM_OUTPUT_queue_urls.ingest
+        queueLength: "1"
+        awsRegion: eu-west-3
+        identityOwner: operator

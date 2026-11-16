@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: worker-config
+  namespace: bceao-rag
+data:
+  FASTEMBED_CACHE_PATH: /opt/fastembed_cache
+  QDRANT_URL: http://qdrant.bceao-rag.svc.cluster.local:6333
+  QDRANT_COLLECTION: bceao_regulations
+  S3_BUCKET: REPLACE_WITH_TERRAFORM_OUTPUT_app_bucket_name
+  S3_REGION: eu-west-3
+  S3_PREFIX: ""
+
+  # Job dispatch (app/config.py:get_job_settings). The api enqueues to SQS; worker pods
+  # consume. State is shared through DynamoDB, crawl files and manifests through S3,
+  # because the pod that crawls, the pod that ingests and the api replica answering a
+  # status poll are generally all different.
+  AWS_REGION: eu-west-3
+  JOB_QUEUE_BACKEND: sqs
+  CRAWL_JOBS_QUEUE_URL: REPLACE_WITH_TERRAFORM_OUTPUT_queue_urls.crawl
+  INGEST_JOBS_QUEUE_URL: REPLACE_WITH_TERRAFORM_OUTPUT_queue_urls.ingest
+  JOB_STATE_BACKEND: dynamodb
+  JOBS_TABLE_NAME: REPLACE_WITH_TERRAFORM_OUTPUT_jobs_table_name
+  JOB_PROGRESS_TABLE_NAME: REPLACE_WITH_TERRAFORM_OUTPUT_job_progress_table_name
+  JOB_MANIFEST_BACKEND: s3
+  CRAWL_STORAGE_BACKEND: s3
+  JOB_MAX_ATTEMPTS: "3" # = max_receive_count in infra/terraform/modules/queues

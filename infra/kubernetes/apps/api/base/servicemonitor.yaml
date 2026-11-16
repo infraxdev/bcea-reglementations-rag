@@ -1,0 +1,19 @@
+# TODO: the FastAPI app doesn't expose /metrics yet — add prometheus-fastapi-
+# instrumentator (or equivalent) to app/main.py before this ServiceMonitor has
+# anything to scrape. Left in place so the observability side is ready the moment it
+# does (docs/aws-architecture.md §7).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: api
+  namespace: bceao-rag
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

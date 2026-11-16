@@ -1,0 +1,36 @@
+# helm repo add grafana https://grafana.github.io/helm-charts
+# helm install tempo grafana/tempo-distributed -n observability --create-namespace -f values.yaml
+#
+# S3-backed, same rationale as Loki above. Receives OTLP spans from the FastAPI app
+# (docs/aws-architecture.md §7) once the OpenTelemetry SDK is wired in — not an app code
+# change this infra generation makes on its own; see the TODO on
+# infra/kubernetes/apps/api/base/deployment.yaml's OTEL_EXPORTER_OTLP_ENDPOINT env var.
+
+storage:
+  trace:
+    backend: s3
+    s3:
+      bucket: REPLACE_WITH_TERRAFORM_OUTPUT_tempo_bucket_name
+      region: eu-west-3
+  retention: 360h # 15d, matches the S3 bucket's own lifecycle expiration
+
+serviceAccount:
+  create: true
+  name: tempo
+  annotations:
+    eks.amazonaws.com/role-arn: REPLACE_WITH_TERRAFORM_OUTPUT_irsa_role_arns.tempo
+
+distributor:
+  replicas: 2
+  nodeSelector:
+    bceao.io/pool: system
+
+querier:
+  replicas: 2
+  nodeSelector:
+    bceao.io/pool: system
+
+compactor:
+  replicas: 1
+  nodeSelector:
+    bceao.io/pool: system

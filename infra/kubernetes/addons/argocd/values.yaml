@@ -1,0 +1,31 @@
+# helm repo add argo https://argoproj.github.io/argo-helm
+# helm install argocd argo/argo-cd -n argocd --create-namespace -f values.yaml
+#
+# Installed manually, once, before anything else — it's the thing that installs
+# everything else (infra/README.md's bootstrap step 6). Not itself managed by the
+# app-of-apps it then bootstraps, to avoid Argo CD needing to manage its own upgrade
+# mid-sync.
+
+server:
+  # Internal-only, same reasoning as Grafana (infra/kubernetes/addons/observability/
+  # kube-prometheus-stack/values.yaml) — reach it via `kubectl port-forward` or an
+  # internal ALB with SSO in front of it, never a public Ingress.
+  service:
+    type: ClusterIP
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 256Mi }
+
+controller:
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { memory: 1Gi }
+
+repoServer:
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+configs:
+  params:
+    server.insecure: true # TLS already terminates in front of this at the internal ALB/port-forward layer

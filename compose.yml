@@ -1,0 +1,122 @@
+x-app-env: &app-env
+  FASTEMBED_CACHE_PATH: /opt/fastembed_cache # baked into the image; .env's relative path doesn't apply
+#  QDRANT_URL: http://qdrantdb:6333
+  QDRANT_URL: http://host.docker.internal:6333
+  OLLAMA_BASE_URL: ${COMPOSE_OLLAMA_BASE_URL:-http://host.docker.internal:11434} # Ollama on the host
+  LOCAL_STORAGE_BASE_DIR: /app/data
+  CRAWL_STORAGE_BACKEND: local
+  JOB_QUEUE_BACKEND: sqs
+  SQS_ENDPOINT_URL: http://elasticmq:9324
+  CRAWL_JOBS_QUEUE_URL: http://elasticmq:9324/000000000000/crawl-jobs
+  INGEST_JOBS_QUEUE_URL: http://elasticmq:9324/000000000000/ingest-jobs
+  JOB_STATE_BACKEND: dynamodb
+  DYNAMODB_ENDPOINT_URL: http://dynamodb:8000
+  JOBS_TABLE_NAME: bceao-rag-local-jobs
+  JOB_PROGRESS_TABLE_NAME: bceao-rag-local-job-progress
+  JOB_STATE_CREATE_TABLES: "true" # DynamoDB Local starts empty; on AWS, Terraform creates them
+  JOB_MANIFEST_BACKEND: local
+  AWS_REGION: eu-west-3
+  AWS_DEFAULT_REGION: eu-west-3
+  AWS_ACCESS_KEY_ID: local # ElasticMQ / DynamoDB Local accept any credentials
+  AWS_SECRET_ACCESS_KEY: local
+
+x-app: &app
+  image: bceao-rag:local
+  build:
+    context: . # on both api and worker: a service with only `image:` gets pulled, not built
+  env_file: .env # required: copy .env.example to .env first
+  extra_hosts:
+    - host.docker.internal:host-gateway # Linux; built in on Docker Desktop
+  volumes:
+    # Shared by api and worker: the worker that crawls and the one that ingests must see
+    # the same files and manifests (S3 plays this role on EKS).
+    - crawl_data:/app/data
+    - job_metadata:/app/job_metadata
+  depends_on:
+    qdrantdb:
+      condition: service_started
+    elasticmq:
+      condition: service_healthy
+    dynamodb:
+      condition: service_started
+  restart: unless-stopped
+
+services:
+  qdrantdb:
+    image: qdrant/qdrant:v1.19.1 # same as infra/kubernetes/apps/qdrant/base/statefulset.yaml
+    restart: always
+    container_name: qdrantdb
+    ports:
+      - 6335:6333
+      - 6336:6334
+    environment:
+      QDRANT__LOG_LEVEL: INFO
+      # QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY}
+    volumes:
+      - qdrantdb_data:/qdrant/storage
+
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.6.11
+    ports:
+      - 9324:9324 # SQS API, handy for inspecting queues with the AWS CLI
+      - 9325:9325 # web UI: http://localhost:9325
+    volumes:
+      - ./docker/elasticmq.conf:/opt/elasticmq.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- 'http://localhost:9324/?Action=ListQueues' >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  dynamodb:
+    image: amazon/dynamodb-local:2.5.4
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal/data"]
+    user: root # the image's default user can't write to a fresh named volume
+    volumes:
+      - dynamodb_data:/home/dynamodblocal/data
+    restart: unless-stopped
+
+  api:
+    <<: *app
+    environment:
+      <<: *app-env
+      CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:8080
+    ports:
+      - 8000:8000
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "app.worker"]
+    environment:
+      <<: *app-env
+    healthcheck:
+      disable: true # no HTTP server; the image's HEALTHCHECK targets the api
+    stop_grace_period: 60s # finish the current SQS long poll and hand the job back
+    depends_on:
+      api:
+        condition: service_started
+      qdrantdb:
+        condition: service_started
+      elasticmq:
+        condition: service_healthy
+      dynamodb:
+        condition: service_started
+
+  web:
+    build:
+      context: web
+    image: bceao-rag-web:local
+    environment:
+      API_UPSTREAM: http://api:8000
+    ports:
+      - 8080:8080 # http://localhost:8080 (3000 stays free for `npm run dev`)
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  qdrantdb_data:
+  crawl_data:
+  job_metadata:
+  dynamodb_data:

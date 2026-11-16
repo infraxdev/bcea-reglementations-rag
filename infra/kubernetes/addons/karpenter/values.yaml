@@ -1,0 +1,30 @@
+# helm repo add karpenter https://public.ecr.aws/karpenter
+# helm install karpenter karpenter/karpenter -n karpenter --create-namespace -f values.yaml
+#
+# The controller itself runs on `system`; the NodePools it manages
+# (infra/kubernetes/addons/karpenter/nodepools/) are applied separately — see that
+# folder's README note on why they're plain manifests, not Helm values.
+
+settings:
+  clusterName: bceao-rag-ENVIRONMENT # replace: dev | staging | prod
+  clusterEndpoint: REPLACE_WITH_TERRAFORM_OUTPUT_cluster_endpoint
+  interruptionQueue: REPLACE_WITH_TERRAFORM_OUTPUT_karpenter_queue_name
+
+serviceAccount:
+  create: true
+  name: karpenter
+  annotations:
+    eks.amazonaws.com/role-arn: REPLACE_WITH_TERRAFORM_OUTPUT_karpenter_iam_role_arn
+
+replicas: 2
+
+controller:
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+nodeSelector:
+  bceao.io/pool: system

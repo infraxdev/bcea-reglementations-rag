@@ -1,0 +1,13 @@
+# Prod defaults to a hosted provider for quality (docs/aws-architecture.md §0's
+# generation-provider note) — dev/staging keep the base's ollama default, which is
+# cheaper to iterate against. Override again per-request via POST /query's
+# provider/model fields regardless (app/api/query.py).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config
+  namespace: bceao-rag
+data:
+  GENERATION_PROVIDER: anthropic
+  REWRITE_PROVIDER: anthropic
+  ROUTER_PROVIDER: anthropic

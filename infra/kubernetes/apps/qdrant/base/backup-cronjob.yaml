@@ -1,0 +1,73 @@
+# Nightly Qdrant snapshot -> S3, per docs/aws-architecture.md §9 (RPO ~24h — fine given
+# ingestion is batch, not continuous). Two containers sharing an emptyDir rather than a
+# custom image: curl triggers the snapshot and streams it out of Qdrant's HTTP API (no
+# shared filesystem with the StatefulSet's own PVC needed), then aws-cli uploads it.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: qdrant-backup
+  namespace: bceao-rag
+spec:
+  schedule: "0 2 * * *" # 02:00 UTC daily
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          serviceAccountName: qdrant-backup
+          restartPolicy: OnFailure
+          nodeSelector:
+            bceao.io/pool: qdrant
+          tolerations:
+            - key: bceao.io/pool
+              operator: Equal
+              value: qdrant
+              effect: NoSchedule
+          initContainers:
+            - name: fetch-snapshot
+              image: curlimages/curl:8.10.1
+              env:
+                - name: QDRANT_URL
+                  value: http://qdrant.bceao-rag.svc.cluster.local:6333
+                - name: COLLECTION
+                  value: bceao_regulations
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  echo "Creating snapshot for $COLLECTION..."
+                  RESPONSE=$(curl -sf -X POST "$QDRANT_URL/collections/$COLLECTION/snapshots")
+                  # Minimal JSON parse (no jq in this image) — response shape is
+                  # {"result":{"name":"<snapshot-file>",...},"status":"ok",...}
+                  SNAPSHOT_NAME=$(printf '%s' "$RESPONSE" | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4)
+                  echo "Snapshot: $SNAPSHOT_NAME"
+                  curl -sf "$QDRANT_URL/collections/$COLLECTION/snapshots/$SNAPSHOT_NAME" \
+                    --output /data/snapshot.snap
+                  echo "$SNAPSHOT_NAME" > /data/snapshot-name.txt
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+          containers:
+            - name: upload-to-s3
+              image: amazon/aws-cli:2.17.62
+              env:
+                - name: BUCKET
+                  value: REPLACE_WITH_TERRAFORM_OUTPUT_qdrant_snapshots_bucket_name
+                - name: COLLECTION
+                  value: bceao_regulations
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  SNAPSHOT_NAME=$(cat /data/snapshot-name.txt)
+                  DATE=$(date +%F)
+                  aws s3 cp /data/snapshot.snap \
+                    "s3://$BUCKET/$COLLECTION/$DATE-$SNAPSHOT_NAME"
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+          volumes:
+            - name: data
+              emptyDir: {}

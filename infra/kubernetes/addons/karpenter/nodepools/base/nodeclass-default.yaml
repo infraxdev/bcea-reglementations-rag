@@ -1,0 +1,26 @@
+# Shared EC2NodeClass for every CPU NodePool (api, ingest-worker, qdrant). Subnet/SG
+# selection relies on the "karpenter.sh/discovery" tag the vpc/eks Terraform modules
+# already apply (infra/terraform/modules/vpc/main.tf, modules/eks/main.tf) — the value
+# is patched per environment by the overlay (kustomization.yaml's replacements).
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  amiFamily: AL2023
+  role: KARPENTER_NODE_IAM_ROLE_NAME # replaced by overlay — from the eks module's karpenter_node_iam_role_name output
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: ENVIRONMENT_DISCOVERY_TAG
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: ENVIRONMENT_DISCOVERY_TAG
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 50Gi
+        volumeType: gp3
+        encrypted: true
+        deleteOnTermination: true
+  tags:
+    bceao.io/managed-by: karpenter

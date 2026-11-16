@@ -1,0 +1,38 @@
+# Applied once per cluster, before any Helm release or Argo CD Application —
+# `kubectl apply -f infra/kubernetes/namespaces.yaml`. Namespaces are owned here, not by
+# any individual Helm chart/Kustomize overlay, so that no single Argo CD Application's
+# prune can delete one out from under the others.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bceao-rag
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-secrets
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keda
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: karpenter
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd

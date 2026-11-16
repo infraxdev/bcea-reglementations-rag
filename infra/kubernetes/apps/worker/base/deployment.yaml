@@ -1,0 +1,54 @@
+# Job worker: `python -m app.worker` (app/worker.py) long-polls the crawl and ingest SQS
+# queues and runs each job. Same image as the api Deployment, different command. KEDA
+# (scaledobject.yaml) scales it from 0 on queue depth; job status/progress go to the
+# DynamoDB tables, so the api can report on jobs this pod runs.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: bceao-rag
+  labels:
+    app.kubernetes.io/name: worker
+spec:
+  replicas: 0 # KEDA (scaledobject.yaml) owns this field between 0 and maxReplicaCount
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: worker
+    spec:
+      serviceAccountName: worker
+      # On SIGTERM the worker finishes its current SQS long poll (<= 20s), cancels the
+      # running job and hands its message straight back to the queue. Both pipelines
+      # resume where they stopped, so another pod picks the job up without redoing work.
+      terminationGracePeriodSeconds: 60
+      nodeSelector:
+        bceao.io/pool: ingest-worker
+      tolerations:
+        - key: bceao.io/pool
+          operator: Equal
+          value: ingest-worker
+          effect: NoSchedule
+      containers:
+        - name: worker
+          image: REPLACE_WITH_ECR_IMAGE_URI # same image/tag as the api Deployment — set by CI
+          command: ["python", "-m", "app.worker"]
+          envFrom:
+            - configMapRef:
+                name: worker-config
+            - secretRef:
+                name: worker-secrets
+          resources:
+            # Docling parse + RapidOCR + fastembed are the heaviest step in the whole
+            # pipeline (docs/aws-architecture.md §0) — sized well above the api pods.
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              memory: 8Gi
+          # No HTTP server to probe — this is a long-poll consumer, not a request
+          # handler. Liveness is implicit: a wedged pod stops pulling from the queue,
+          # the queue backs up, and the DLQ-depth alert (docs/aws-architecture.md §7)
+          # fires.

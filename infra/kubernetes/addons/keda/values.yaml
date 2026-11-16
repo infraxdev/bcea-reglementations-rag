@@ -1,0 +1,23 @@
+# helm repo add kedacore https://kedacore.github.io/charts
+# helm install keda kedacore/keda -n keda --create-namespace -f values.yaml
+#
+# Scales infra/kubernetes/apps/worker/base/scaledobject.yaml on SQS queue depth
+# (docs/aws-architecture.md §6) — the ingest-worker Deployment goes to zero replicas
+# between crawl/ingest runs, and Karpenter's ingest-worker NodePool follows it down.
+
+serviceAccount:
+  create: true
+  name: keda-operator
+  annotations:
+    eks.amazonaws.com/role-arn: REPLACE_WITH_TERRAFORM_OUTPUT_irsa_role_arns.keda
+
+resources:
+  operator:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+nodeSelector:
+  bceao.io/pool: system

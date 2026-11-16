@@ -1,0 +1,50 @@
+# Non-secret config — mirrors .env.example. Secrets (OPENAI_API_KEY/ANTHROPIC_API_KEY/
+# QDRANT_API_KEY) come from externalsecret.yaml instead, never from here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config
+  namespace: bceao-rag
+data:
+  # fastembed/rerank weights are baked into the image at this path (repo root
+  # Dockerfile's `models` stage) — never re-downloaded at runtime.
+  FASTEMBED_CACHE_PATH: /opt/fastembed_cache
+
+  # Qdrant Service — infra/kubernetes/apps/qdrant/base/service.yaml.
+  QDRANT_URL: http://qdrant.bceao-rag.svc.cluster.local:6333
+  QDRANT_COLLECTION: bceao_regulations
+
+  # S3 storage backend (app/crawler/storage/s3.py already supports this — no app
+  # code change). Credentials come from the pod's IRSA role, not S3_ACCESS_KEY/
+  # S3_SECRET_KEY, which are deliberately left unset.
+  S3_BUCKET: REPLACE_WITH_TERRAFORM_OUTPUT_app_bucket_name
+  S3_REGION: eu-west-3
+  S3_PREFIX: ""
+
+  # Generation / rewrite / router providers — app/config.py. ollama here points at the
+  # optional in-cluster Ollama Service (Phase 3, docs/aws-architecture.md §12); prod
+  # defaults to a hosted provider instead (see overlays/prod's patch).
+  GENERATION_PROVIDER: ollama
+  OLLAMA_BASE_URL: http://ollama.bceao-rag.svc.cluster.local:11434
+  REWRITE_PROVIDER: ollama
+  ROUTER_PROVIDER: ollama
+
+  # The web UI reaches the api same-origin through its nginx /api proxy
+  # (infra/kubernetes/apps/web), so it needs no CORS entry. List only other browser
+  # origins that call the api host directly.
+  CORS_ALLOWED_ORIGINS: REPLACE_WITH_DEPLOYED_FRONTEND_ORIGIN
+
+  # Job dispatch (app/config.py:get_job_settings). The api enqueues to SQS; worker pods
+  # consume. State is shared through DynamoDB, crawl files and manifests through S3,
+  # because the pod that crawls, the pod that ingests and the api replica answering a
+  # status poll are generally all different.
+  AWS_REGION: eu-west-3
+  JOB_QUEUE_BACKEND: sqs
+  CRAWL_JOBS_QUEUE_URL: REPLACE_WITH_TERRAFORM_OUTPUT_queue_urls.crawl
+  INGEST_JOBS_QUEUE_URL: REPLACE_WITH_TERRAFORM_OUTPUT_queue_urls.ingest
+  JOB_STATE_BACKEND: dynamodb
+  JOBS_TABLE_NAME: REPLACE_WITH_TERRAFORM_OUTPUT_jobs_table_name
+  JOB_PROGRESS_TABLE_NAME: REPLACE_WITH_TERRAFORM_OUTPUT_job_progress_table_name
+  JOB_MANIFEST_BACKEND: s3
+  CRAWL_STORAGE_BACKEND: s3
+  JOB_MAX_ATTEMPTS: "3" # = max_receive_count in infra/terraform/modules/queues

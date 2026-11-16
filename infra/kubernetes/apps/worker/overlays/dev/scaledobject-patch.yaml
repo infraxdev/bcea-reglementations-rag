@@ -1,0 +1,7 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: worker
+  namespace: bceao-rag
+spec:
+  maxReplicaCount: 3

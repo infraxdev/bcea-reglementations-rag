@@ -1,0 +1,26 @@
+# Root Application — Argo CD's "app of apps" pattern. Installed once per cluster via:
+#   kubectl apply -f infra/kubernetes/argocd/bootstrap/app-of-apps.yaml
+# after Argo CD itself is installed (helm install argocd argo/argo-cd -n argocd
+# --create-namespace). Everything under infra/kubernetes/argocd/apps/ is then synced
+# automatically — adding a file there is enough to onboard a new addon/app; no manual
+# `argocd app create` needed (docs/aws-architecture.md §10).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-of-apps
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:infraxdev/bcea-reglementations-rag.git
+    targetRevision: main
+    path: infra/kubernetes/argocd/apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false # namespaces.yaml owns namespace lifecycle — see its own header comment

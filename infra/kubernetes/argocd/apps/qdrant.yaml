@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: qdrant
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:infraxdev/bcea-reglementations-rag.git
+    targetRevision: main
+    path: infra/kubernetes/apps/qdrant/overlays/ENVIRONMENT
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: bceao-rag
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

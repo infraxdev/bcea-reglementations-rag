@@ -4,5 +4,25 @@ __pycache__/
 venv/
 data/
 job_metadata/
+.cache/
 .env
 .DS_Store
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraform.lock.hcl
+# tfvars can hold environment-specific values that aren't meant for git even though
+# terraform.tfvars.example (bootstrap) and the environments/*/terraform.tfvars
+# committed in this repo are deliberately just defaults, not secrets — this guards
+# against someone later adding a *.auto.tfvars with real values.
+*.auto.tfvars
+
+# → CLAUDE md
+# → SKILL md
+# → MCP configs
+# → hooks
+# → agent instructions
+# → anything your AI automatically reads and acts on

@@ -1,0 +1,57 @@
+# helm repo add grafana https://grafana.github.io/helm-charts
+# helm install loki grafana/loki -n observability --create-namespace -f values.yaml
+#
+# S3-backed per docs/aws-architecture.md §7 — the standard production setup, cheaper
+# and more durable than sizing EBS for log growth. SimpleScalable mode (not
+# single-binary) splits read/write paths so log-heavy ingest/crawl bursts don't starve
+# Grafana's own log queries.
+
+loki:
+  auth_enabled: false
+  storage:
+    type: s3
+    bucketNames:
+      chunks: REPLACE_WITH_TERRAFORM_OUTPUT_loki_bucket_name
+      ruler: REPLACE_WITH_TERRAFORM_OUTPUT_loki_bucket_name
+      admin: REPLACE_WITH_TERRAFORM_OUTPUT_loki_bucket_name
+    s3:
+      region: eu-west-3
+  schemaConfig:
+    configs:
+      - from: "2024-01-01"
+        store: tsdb
+        object_store: s3
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
+  limits_config:
+    retention_period: 720h # 30d, matches the S3 bucket's own lifecycle expiration
+
+deploymentMode: SimpleScalable
+
+serviceAccount:
+  create: true
+  name: loki
+  annotations:
+    eks.amazonaws.com/role-arn: REPLACE_WITH_TERRAFORM_OUTPUT_irsa_role_arns.loki
+
+read:
+  replicas: 2
+  nodeSelector:
+    bceao.io/pool: system
+
+write:
+  replicas: 3
+  nodeSelector:
+    bceao.io/pool: system
+
+backend:
+  replicas: 2
+  nodeSelector:
+    bceao.io/pool: system
+
+gateway:
+  replicas: 2
+  nodeSelector:
+    bceao.io/pool: system

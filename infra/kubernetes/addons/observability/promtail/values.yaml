@@ -1,0 +1,18 @@
+# helm repo add grafana https://grafana.github.io/helm-charts
+# helm install promtail grafana/promtail -n observability --create-namespace -f values.yaml
+#
+# DaemonSet — tails every pod's container logs on each node and ships them to Loki.
+# Runs on every node regardless of pool (including the tainted api/ingest-worker/
+# qdrant/llm-gpu NodePools), so it carries a blanket toleration.
+
+config:
+  clients:
+    - url: http://loki-gateway.observability.svc.cluster.local/loki/api/v1/push
+
+tolerations:
+  - operator: Exists
+    effect: NoSchedule
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { memory: 128Mi }
