@@ -27,14 +27,16 @@ class VectorStore(ABC):
 
     @abstractmethod
     async def search(
-        self, query_vector: list[float], top_k: int = 20, keyword: str | None = None
+        self, dense_vector: list[float], sparse_vector: dict[int, float] | None = None, top_k: int = 20
     ) -> list[SearchHit]: ...
 
 
 class QdrantVectorStore(VectorStore):
-    """Default VectorStore implementation, backed by Qdrant. The keyword leg of hybrid
-    search uses Qdrant's own full-text payload index (MatchText) on the `text` field,
-    so no separate BM25/Elasticsearch dependency is needed alongside the vector store."""
+    """Default VectorStore implementation, backed by Qdrant. Dense (semantic) and sparse
+    (BM25, lexical) vectors are stored as separate named vectors on the same point; when a
+    search provides both, Qdrant fuses the two legs server-side via reciprocal rank fusion
+    (Query API prefetch + FusionQuery), so no separate BM25/Elasticsearch dependency is
+    needed alongside the vector store."""
 
     def __init__(self) -> None:
         settings = get_qdrant_settings()
@@ -56,7 +58,10 @@ class QdrantVectorStore(VectorStore):
         if not await client.collection_exists(self._collection):
             await client.create_collection(
                 collection_name=self._collection,
-                vectors_config=qmodels.VectorParams(size=vector_size, distance=qmodels.Distance.COSINE),
+                vectors_config={"dense": qmodels.VectorParams(size=vector_size, distance=qmodels.Distance.COSINE)},
+                # Modifier.IDF lets Qdrant compute true corpus-wide IDF over the BM25 term
+                # weights at query time, rather than trusting fastembed's per-document estimate.
+                sparse_vectors_config={"sparse": qmodels.SparseVectorParams(modifier=qmodels.Modifier.IDF)},
             )
             await client.create_payload_index(
                 collection_name=self._collection,
@@ -72,41 +77,61 @@ class QdrantVectorStore(VectorStore):
         from qdrant_client import models as qmodels
 
         client = self._get_client()
-        points = [
-            qmodels.PointStruct(
-                id=_point_id(ec.chunk.chunk_id),
-                vector=ec.dense_vector,
-                payload={
-                    "chunk_id": ec.chunk.chunk_id,
-                    "source_url": ec.chunk.source_url,
-                    "title": ec.chunk.title,
-                    "page_number": ec.chunk.page_number,
-                    "text": ec.chunk.text,
-                    "metadata": ec.chunk.metadata,
-                },
+        points = []
+        for ec in chunks:
+            vector: dict[str, object] = {"dense": ec.dense_vector}
+            if ec.sparse_vector:
+                vector["sparse"] = qmodels.SparseVector(
+                    indices=list(ec.sparse_vector.keys()), values=list(ec.sparse_vector.values())
+                )
+            points.append(
+                qmodels.PointStruct(
+                    id=_point_id(ec.chunk.chunk_id),
+                    vector=vector,
+                    payload={
+                        "chunk_id": ec.chunk.chunk_id,
+                        "source_url": ec.chunk.source_url,
+                        "title": ec.chunk.title,
+                        "page_number": ec.chunk.page_number,
+                        "text": ec.chunk.text,
+                        "metadata": ec.chunk.metadata,
+                    },
+                )
             )
-            for ec in chunks
-        ]
         await client.upsert(collection_name=self._collection, points=points)
 
     async def search(
-        self, query_vector: list[float], top_k: int = 20, keyword: str | None = None
+        self, dense_vector: list[float], sparse_vector: dict[int, float] | None = None, top_k: int = 20
     ) -> list[SearchHit]:
         from qdrant_client import models as qmodels
 
         client = self._get_client()
-        query_filter = None
-        if keyword:
-            query_filter = qmodels.Filter(
-                must=[qmodels.FieldCondition(key="text", match=qmodels.MatchText(text=keyword))]
+        if sparse_vector:
+            prefetch = [
+                qmodels.Prefetch(query=dense_vector, using="dense", limit=top_k),
+                qmodels.Prefetch(
+                    query=qmodels.SparseVector(
+                        indices=list(sparse_vector.keys()), values=list(sparse_vector.values())
+                    ),
+                    using="sparse",
+                    limit=top_k,
+                ),
+            ]
+            results = await client.query_points(
+                collection_name=self._collection,
+                prefetch=prefetch,
+                query=qmodels.FusionQuery(fusion=qmodels.Fusion.RRF),
+                limit=top_k,
+                with_payload=True,
             )
-        results = await client.query_points(
-            collection_name=self._collection,
-            query=query_vector,
-            query_filter=query_filter,
-            limit=top_k,
-            with_payload=True,
-        )
+        else:
+            results = await client.query_points(
+                collection_name=self._collection,
+                query=dense_vector,
+                using="dense",
+                limit=top_k,
+                with_payload=True,
+            )
         hits: list[SearchHit] = []
         for point in results.points:
             payload = point.payload or {}

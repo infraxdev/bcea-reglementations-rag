@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from ..retrieval.models import ChatTurn
 from .models import PolicyGateResult
 
 
 class Generator(ABC):
-    """LLM box: produces a grounded answer from an already-assembled prompt
-    (context + citations, from retrieval/prompt_assembly.py)."""
+    """LLM box: produces a grounded answer from a system prompt plus a multi-turn message
+    list (prior conversation turns, oldest first, ending in the current user turn whose
+    content is the assembled RAG prompt from retrieval/prompt_assembly.py)."""
 
     @abstractmethod
-    async def generate(self, prompt: str) -> str: ...
+    async def generate(self, system: str, messages: list[ChatTurn]) -> str: ...
 
 
 class PolicyGate(ABC):

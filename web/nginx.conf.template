@@ -1,0 +1,45 @@
+# Rendered by the nginx image's envsubst entrypoint (see web/Dockerfile). Only
+# ${API_UPSTREAM} is substituted (NGINX_ENVSUBST_FILTER), so nginx's own $variables are left alone.
+
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+    server_tokens off;
+
+    # ALB target-group health check (the shared Ingress uses /health for every backend).
+    location = /health {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Same-origin API: /api/query -> ${API_UPSTREAM}/query (the trailing slash strips /api).
+    location /api/ {
+        proxy_pass ${API_UPSTREAM}/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+        # /query runs retrieval, reranking and an LLM call; allow slow answers.
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        client_max_body_size 1m;
+    }
+
+    # Next.js build assets have content-hashed filenames, so they can be cached for a year.
+    location /_next/static/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
+    }
+
+    location / {
+        add_header Cache-Control "no-cache";
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        try_files $uri $uri.html $uri/ /index.html;
+    }
+
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+}

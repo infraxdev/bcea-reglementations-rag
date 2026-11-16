@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-from .models import DocChunk, EmbeddedChunk, ParsedDocument, ParsedPage
+from .models import DocChunk, EmbeddedChunk, ParsedDocument, ParsedPage, QueryEmbedding
 
 
 class Parser(ABC):
@@ -34,4 +34,4 @@ class Embedder(ABC):
     async def embed_chunks(self, chunks: list[DocChunk]) -> list[EmbeddedChunk]: ...
 
     @abstractmethod
-    async def embed_query(self, query: str) -> list[float]: ...
+    async def embed_query(self, query: str) -> QueryEmbedding: ...

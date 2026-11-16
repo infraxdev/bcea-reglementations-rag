@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #f8f5ef;
+  --background-glow: radial-gradient(
+      1100px 520px at 82% -8%,
+      rgba(246, 183, 56, 0.24),
+      transparent 60%
+    ),
+    radial-gradient(900px 480px at 8% 0%, rgba(81, 43, 30, 0.1), transparent 55%),
+    #f8f5ef;
+  --foreground: #2c1810;
+  --muted: #7b5a4f;
+  --muted-foreground: #a78f84;
+  --surface: #ffffff;
+  --surface-2: #fcfaf4;
+  --border: rgba(81, 43, 30, 0.1);
+  --border-strong: rgba(81, 43, 30, 0.18);
+  --accent: #b17b22;
+  --accent-2: #8a5415;
+  --accent-foreground: #ffffff;
+  --shadow-color: 32deg 55% 40%;
+}
+
+.dark {
+  --background: #1c130c;
+  --background-glow: radial-gradient(
+      1100px 520px at 82% -8%,
+      rgba(246, 183, 56, 0.16),
+      transparent 60%
+    ),
+    radial-gradient(900px 480px at 8% 0%, rgba(217, 140, 43, 0.14), transparent 55%),
+    #1c130c;
+  --foreground: #f4ead9;
+  --muted: #c9ab8f;
+  --muted-foreground: #8a7263;
+  --surface: #241a12;
+  --surface-2: #2c2015;
+  --border: rgba(244, 234, 217, 0.08);
+  --border-strong: rgba(244, 234, 217, 0.14);
+  --accent: #f6b738;
+  --accent-2: #d98c2b;
+  --accent-foreground: #2c1810;
+  --shadow-color: 38deg 70% 10%;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-accent-foreground: var(--accent-foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background-glow);
+  color: var(--foreground);
+}
+
+@keyframes float-slow {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.animate-float-slow {
+  animation: float-slow 5s ease-in-out infinite;
+}

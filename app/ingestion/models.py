@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 
 class ParsedPage(BaseModel):
@@ -44,6 +44,13 @@ class EmbeddedChunk(BaseModel):
     sparse_vector: dict[int, float] | None = None
 
 
+class QueryEmbedding(BaseModel):
+    """A query's dense/sparse vectors, ready for the vector store's search leg(s)."""
+
+    dense_vector: list[float]
+    sparse_vector: dict[int, float] | None = None
+
+
 class SearchHit(BaseModel):
     """A single vector-store search result, en route to retrieval's rerank + prompt assembly."""
 
@@ -59,5 +66,42 @@ class SearchHit(BaseModel):
 class IndexResult(BaseModel):
     job_id: str
     documents_processed: int = 0
+    documents_skipped: int = Field(0, description="Already moved into processed/ by a prior run.")
     chunks_indexed: int = 0
     errors: list[str] = Field(default_factory=list)
+
+
+class IngestProgress(BaseModel):
+    """Live progress snapshot for a background ingest run — see ingestion/progress.py.
+    Polled by GET /ingest/{job_id}/progress; rate/eta are computed fields so callers get
+    a tqdm-style "docs/sec, ETA" readout without recomputing it themselves."""
+
+    job_id: str
+    status: str = Field(description="'queued' | 'running' | 'completed' | 'failed'")
+    attempts: int = Field(0, description="How many times a worker has started this run.")
+    total_documents: int
+    documents_processed: int = 0
+    documents_skipped: int = 0
+    chunks_indexed: int = 0
+    current_file: str | None = None
+    errors: list[str] = Field(default_factory=list)
+    started_at: float
+    updated_at: float
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def documents_done(self) -> int:
+        return self.documents_processed + self.documents_skipped
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def rate_docs_per_sec(self) -> float:
+        elapsed = self.updated_at - self.started_at
+        return round(self.documents_done / elapsed, 3) if elapsed > 0 else 0.0
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def eta_seconds(self) -> float | None:
+        remaining = self.total_documents - self.documents_done
+        rate = self.rate_docs_per_sec
+        return round(remaining / rate, 1) if rate > 0 and remaining > 0 else None

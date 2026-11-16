@@ -3,23 +3,27 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 from ..ingestion.models import SearchHit
-from .models import RewrittenQuery, RouterDecision
+from .models import ChatTurn, RewrittenQuery, RouterDecision
 
 
 class QueryRouter(ABC):
-    """Query router. Decides whether a user query is in the BCEAO/regulatory scope this
-    RAG system is meant to answer, before any retrieval or LLM call happens."""
+    """Query router. Decides whether the latest user message is in the BCEAO/regulatory
+    scope this RAG system is meant to answer, before any retrieval happens. Takes the raw
+    conversation history so a follow-up like "and its penalty?" can be understood, but
+    scope is a property of the latest message, not of the conversation. May also return
+    the rewritten search query or the user-facing reply on the RouterDecision."""
 
     @abstractmethod
-    async def route(self, query: str) -> RouterDecision: ...
+    async def route(self, query: str, history: list[ChatTurn] | None = None) -> RouterDecision: ...
 
 
 class QueryRewriter(ABC):
-    """Rewrite query. Normalizes the query and pulls out structured metadata (date
-    ranges, document types, etc.) to use as search filters."""
+    """Rewrite query. Resolves pronouns/implicit references against conversation
+    history, normalizes the query, and pulls out structured metadata (date ranges,
+    document types, etc.) to use as search filters."""
 
     @abstractmethod
-    async def rewrite(self, query: str) -> RewrittenQuery: ...
+    async def rewrite(self, query: str, history: list[ChatTurn] | None = None) -> RewrittenQuery: ...
 
 
 class Reranker(ABC):

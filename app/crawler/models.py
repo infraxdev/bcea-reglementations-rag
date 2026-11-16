@@ -5,6 +5,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, HttpUrl
 
+from ..config import get_default_crawl_storage_backend
+
 
 class ResourceType(str, Enum):
     HTML = "html"
@@ -67,8 +69,9 @@ class CrawlRequest(BaseModel):
         500, ge=1, description="Skip files larger than this. Set to null for no limit."
     )
     storage_backend: Literal["local", "s3"] = Field(
-        "local",
-        description="Where to persist downloaded files. Both backends are configured server-side via "
+        default_factory=get_default_crawl_storage_backend,
+        description="Where to persist downloaded files (default: the server's CRAWL_STORAGE_BACKEND, "
+        "'local' unless set; 's3' on EKS, where crawl and ingest run in different pods). Both backends are configured server-side via "
         "environment variables (LOCAL_STORAGE_BASE_DIR, or S3_BUCKET/S3_ENDPOINT_URL/S3_REGION/"
         "S3_ACCESS_KEY/S3_SECRET_KEY/S3_PREFIX/S3_USE_SSL) — no credentials or paths are accepted here.",
     )
