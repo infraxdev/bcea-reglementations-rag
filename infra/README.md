@@ -23,6 +23,16 @@ infra/
    terraform init
    terraform apply -var="account_name=nonprod"   # or "prod" in the prod account
    ```
+   The same apply creates the GitHub Actions OIDC provider and the three CI roles
+   (`github-oidc.tf`: no static AWS keys in CI). Hand their ARNs to the workflows as
+   repo variables:
+   ```bash
+   gh variable set AWS_CI_ROLE_ARN       --body "$(terraform output -raw github_ci_role_arn)"
+   gh variable set AWS_TF_PLAN_ROLE_ARN  --body "$(terraform output -raw github_tf_plan_role_arn)"
+   gh variable set AWS_TF_APPLY_ROLE_ARN --body "$(terraform output -raw github_tf_apply_role_arn)"
+   ```
+   The `dev`, `staging` and `prod` GitHub Environments must exist in the repo settings:
+   the roles' trust policies are pinned to them.
 2. **Environment infra** — `infra/terraform/environments/<env>/`:
    ```bash
    cd infra/terraform/environments/dev
