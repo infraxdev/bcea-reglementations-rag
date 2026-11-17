@@ -55,9 +55,10 @@ module "queues" {
 module "secrets" {
   source = "../../modules/secrets"
 
-  environment  = local.environment
-  secret_names = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "QDRANT_API_KEY"]
-  tags         = local.common_tags
+  environment           = local.environment
+  secret_names          = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "QDRANT_API_KEY"]
+  recovery_window_days  = 0
+  tags                  = local.common_tags
 }
 
 module "ecr" {
